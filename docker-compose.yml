@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: polarops
+      POSTGRES_USER: polarops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes: [polarops_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polarops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  web:
+    build: .
+    ports: ["8000:8000"]
+    volumes: [polarops_media:/app/media]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-replace-this-before-deploy}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      POLAROPS_PUBLIC_URL: ${POLAROPS_PUBLIC_URL:-http://localhost:8000}
+      DB_ENGINE: postgres
+      POSTGRES_DB: polarops
+      POSTGRES_USER: polarops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  polarops_media:
+  polarops_data:

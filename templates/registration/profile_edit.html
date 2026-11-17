@@ -1,0 +1,2 @@
+{% extends 'core/base.html' %}
+{% block content %}<div class="page-heading"><div><div class="eyebrow">MY PROFILE / FIELD CONTACT</div><h1>Update contact details</h1><p>Only your contact number and emergency contact can be changed here.</p></div></div><form method="post" class="field-form operational-form">{% csrf_token %}{{ form.as_p }}<button class="primary-btn">SAVE CONTACT DETAILS</button></form>{% endblock %}
