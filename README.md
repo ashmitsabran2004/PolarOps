@@ -79,7 +79,22 @@ Roles are Django groups: Administrator, Expedition Leader, Logistics Officer and
 | SOS events | Full response | Acknowledge, update and resolve | View | Submit; view relevant events |
 | Reports and exports | All | Led expeditions | Asset, inventory, transport and requisition | — |
 
-The action by action matrix is generated from `PERMISSION_MAP` on the Administrator-only `/permission-matrix/` page. Expedition Leaders and Field Members are scoped to assigned expeditions; Logistics Officers and Administrators can see all.
+The action by action matrix is generated from `PERMISSION_MAP` on the Administrator-only `/permission-matrix/` page. The README summary matrix follows, with the complete action list available on that page.
+
+| Action | Administrator | Expedition Leader | Logistics Officer | Field Member |
+|---|---|---|---|---|
+| dashboard.view | ✓ | ✓ | ✓ | ✓ |
+| expedition.view | ✓ | ✓ | ✓ | ✓ |
+| expedition.create | ✓ | ✓ | — | — |
+| expedition.edit | ✓ | ✓ | — | — |
+| asset.manage | ✓ | — | ✓ | — |
+| inventory.manage | ✓ | — | ✓ | — |
+| requisition.approve | ✓ | ✓ | — | — |
+| requisition.fulfill | ✓ | — | ✓ | — |
+| risk.assess | ✓ | ✓ | — | — |
+| sos.submit | — | — | — | ✓ |
+| audit.view | ✓ | — | — | — |
+ Expedition Leaders and Field Members are scoped to assigned expeditions; Logistics Officers and Administrators can see all.
 
 Pages and API routes require an authenticated PolarOps role. The API is under /api/; obtain a token from /api/token/ and send it as Authorization: Token <key>. Field API querysets are scoped to assigned expeditions.
 
