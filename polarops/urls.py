@@ -2,7 +2,6 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
-from rest_framework.authtoken.views import obtain_auth_token
 
 from accounts.admin_site import polar_admin_site
 from accounts.views import (
@@ -23,6 +22,7 @@ from inventory.views import (
     RequisitionListView, RequisitionPDFView, SupplyConsumptionView,
 )
 from reports.views import ReportView
+from reports.api import APIIndexView, PolarObtainAuthToken
 from risk.views import RiskEntryView, WeatherFetchView
 from transport.views import TransportApprovalView
 
@@ -68,7 +68,8 @@ urlpatterns = [
     path('ops/<str:resource>/<int:pk>/', ResourceDetailView.as_view(), name='resource_detail'),
     path('ops/<str:resource>/<int:pk>/edit/', ResourceUpdateView.as_view(), name='resource_edit'),
     path('ops/<str:resource>/<int:pk>/delete/', ResourceDeleteView.as_view(), name='resource_delete'),
-    path('api/token/', obtain_auth_token, name='api_token'),
+    path('api/token/', PolarObtainAuthToken.as_view(), name='api_token'),
+    path('api/', APIIndexView.as_view(), name='api_root'),
     path('api/', include('reports.api_urls')),
 ]
 
