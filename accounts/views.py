@@ -78,7 +78,6 @@ class ProfileView(RoleRequiredMixin, TemplateView):
         c = super().get_context_data(**kwargs)
         c['profile'] = getattr(self.request.user, 'field_profile', None)
         c['role_name'] = user_role(self.request.user)
-        c['can_edit_profile'] = can(self.request.user, 'profile.edit.self', c['profile'])
         return c
 
 
@@ -88,6 +87,10 @@ class ProfileContactUpdateView(RoleRequiredMixin, FormView):
     form_class = ProfileContactForm
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not can(request.user, self.permission_action):
+            raise PermissionDenied
         self.profile = get_object_or_404(PersonnelProfile, user=request.user)
         return super().dispatch(request, *args, **kwargs)
 
@@ -97,6 +100,7 @@ class ProfileContactUpdateView(RoleRequiredMixin, FormView):
         return kwargs
 
     def form_valid(self, form):
+        form.instance._history_user = self.request.user
         form.save()
         messages.success(self.request, 'Contact details updated.')
         return redirect('profile')
@@ -109,11 +113,13 @@ class UserListView(RoleRequiredMixin, ListView):
     paginate_by = 30
 
     def get_queryset(self):
-        return User.objects.prefetch_related('groups').order_by('username')
+        users = list(User.objects.prefetch_related('groups').order_by('username'))
+        for user in users:
+            user.role_name = user_role(user) or 'Unassigned'
+        return users
 
     def get_context_data(self, **kwargs):
         c=super().get_context_data(**kwargs)
-        c['role_names']=ROLE_CHOICES
         return c
 
 
@@ -139,6 +145,10 @@ class UserEditView(RoleRequiredMixin, FormView):
     form_class = UserEditForm
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not can(request.user, self.permission_action):
+            raise PermissionDenied
         self.operator = get_object_or_404(User, pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -164,6 +174,10 @@ class UserEditView(RoleRequiredMixin, FormView):
             elif data['is_active'] and not self.operator.is_active:
                 self.operator.is_active = True
                 self.operator.save(update_fields=['is_active'])
+                from accounts.models import RoleAuditEvent
+                event = RoleAuditEvent(user=self.operator, actor=self.request.user, user_label=self.operator.get_username(), actor_label=self.request.user.get_username(), old_role=user_role(self.operator) or '', new_role=user_role(self.operator) or '', action='activated', reason=data['reason'])
+                event._history_user = self.request.user
+                event.save()
         except (PermissionDenied, ValidationError) as error:
             if isinstance(error, PermissionDenied):
                 raise

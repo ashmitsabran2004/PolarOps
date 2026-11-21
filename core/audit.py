@@ -1,8 +1,7 @@
-from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
 from django.views.generic import TemplateView
-from core.permissions import has_role
+from accounts.permissions import RoleRequiredMixin
 from expeditions.models import Expedition,Depot
 from personnel.models import PersonnelProfile,Certification
 from assets.models import Asset,MaintenanceRecord,AssetCheckout
@@ -13,11 +12,9 @@ from core.models import Alert
 from emergency.models import ContingencyPlan,SOSEvent,SOSStatusEvent
 
 AUDITED_MODELS=[Expedition,Depot,PersonnelProfile,Certification,Asset,MaintenanceRecord,AssetCheckout,StockItem,StockMovement,ColdChainBreach,TransportPlan,RiskAssessment,WeatherReading,ContingencyPlan,SOSEvent,SOSStatusEvent,Requisition,RequisitionLine,Alert]
-class AuditLogView(TemplateView):
+class AuditLogView(RoleRequiredMixin, TemplateView):
+    permission_action = 'audit.view'
     template_name='core/audit_log.html'
-    def dispatch(self,request,*args,**kwargs):
-        if not has_role(request.user,'Administrator'): raise PermissionDenied
-        return super().dispatch(request,*args,**kwargs)
     def get_context_data(self,**kwargs):
         c=super().get_context_data(**kwargs);selected=self.request.GET.get('model','');user_id=self.request.GET.get('user','')
         models=[m for m in AUDITED_MODELS if not selected or m._meta.label_lower==selected]

@@ -1,6 +1,9 @@
 from django.db.models import OuterRef, Q, Subquery
 
-from accounts.permissions import ADMINISTRATOR, ROLE_CHOICES, can, scoped_queryset, user_role
+from accounts.permissions import (
+    ADMINISTRATOR, EXPEDITION_LEADER, FIELD_MEMBER, LOGISTICS_OFFICER,
+    ROLE_CHOICES, can, scoped_queryset, user_role,
+)
 from core.models import Alert
 from core.scope import available_expeditions, selected_expedition
 
@@ -44,8 +47,8 @@ def polar_theme(request):
         'theme': theme, 'theme_label': THEMES.get(theme, 'Antarctica'),
         'available_themes': THEMES, 'role_name': role,
         'is_administrator': role == ADMINISTRATOR,
-        'is_field_member': role == 'Field Member',
-        'is_ops_manager': role in ('Administrator', 'Expedition Leader', 'Logistics Officer'),
+        'is_field_member': role == FIELD_MEMBER,
+        'is_ops_manager': role in (ADMINISTRATOR, EXPEDITION_LEADER, LOGISTICS_OFFICER),
         'unread_alert_count': notifications.count(),
         'recent_notifications': notifications[:6], 'risk_badge': badge,
     }

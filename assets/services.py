@@ -6,11 +6,18 @@ from django.db import transaction
 from django.utils import timezone
 from django.urls import reverse
 from assets.models import Asset,AssetCheckout
+from accounts.permissions import FIELD_MEMBER, can, user_role
 
 def checkout_asset(*,asset_id,taken_by,expedition,checked_out_by,checkout_date,handover_condition):
     """Atomically assign a ready asset and record its custody handover."""
     with transaction.atomic():
         asset=Asset.objects.select_for_update().get(pk=asset_id)
+        if not can(checked_out_by, 'asset.checkout', asset):
+            raise ValidationError('You are not authorized to check out this asset.')
+        if asset.expedition_id != expedition.pk:
+            raise ValidationError('The selected expedition must match the asset assignment.')
+        if user_role(checked_out_by) == FIELD_MEMBER and taken_by.user_id != checked_out_by.pk:
+            raise ValidationError('Field Members may only check an asset out to themselves.')
         if asset.condition!='ready': raise ValidationError('This asset is not ready for checkout; its condition is '+asset.get_condition_display()+'.')
         if handover_condition!='ready': raise ValidationError('An asset can only be handed over in ready condition.')
         if asset.checked_out_to_id or AssetCheckout.objects.filter(asset=asset,checkin_date__isnull=True).exists():
@@ -21,14 +28,20 @@ def checkout_asset(*,asset_id,taken_by,expedition,checked_out_by,checkout_date,h
         asset.checked_out_to=taken_by; asset.expedition=expedition; asset.save(update_fields=['checked_out_to','expedition'])
         return record
 
-def checkin_asset(*,asset_id,checked_in_by,return_condition,usage_hours_added,cold_exposure_hours_added,damage_notes=''):
+def checkin_asset(*,asset_id,checked_in_by,return_condition,usage_hours_added,cold_exposure_hours_added,damage_notes='',force_checkin_reason=''):
     """Close an active custody record and add field usage to the asset totals."""
     with transaction.atomic():
         asset=Asset.objects.select_for_update().get(pk=asset_id)
         record=AssetCheckout.objects.select_for_update().filter(asset=asset,checkin_date__isnull=True).order_by('-checkout_date').first()
         if not record: raise ValidationError('This asset has no active checkout.')
+        if record.taken_by.user_id == checked_in_by.pk and not can(checked_in_by, 'asset.checkin', record):
+            raise ValidationError('You are not authorized to check in this asset.')
+        if record.taken_by.user_id != checked_in_by.pk and (
+            not force_checkin_reason.strip() or not can(checked_in_by, 'asset.force_checkin', record)
+        ):
+            raise ValidationError('Only the person holding this asset can check it in unless an authorized Leader or Administrator records a reason.')
         record.checked_in_by=checked_in_by; record.checkin_date=timezone.now(); record.return_condition=return_condition
-        record.usage_hours_added=usage_hours_added; record.cold_exposure_hours_added=cold_exposure_hours_added; record.damage_notes=damage_notes; record.save()
+        record.usage_hours_added=usage_hours_added; record.cold_exposure_hours_added=cold_exposure_hours_added; record.damage_notes=damage_notes; record.force_checkin_reason=force_checkin_reason; record.save()
         asset.usage_hours+=usage_hours_added; asset.cold_exposure_hours+=cold_exposure_hours_added; asset.condition=return_condition; asset.checked_out_to=None
         if return_condition!='ready': asset.condition='service' if return_condition=='service' else return_condition
         asset.save(update_fields=['usage_hours','cold_exposure_hours','condition','checked_out_to'])

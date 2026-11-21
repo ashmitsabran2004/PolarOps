@@ -31,11 +31,22 @@ class PolarForm(forms.ModelForm):
             if isinstance(field.widget,forms.DateTimeInput): field.widget.attrs.setdefault('type','datetime-local')
         self.error_css_class='field-error'
 class ExpeditionForm(PolarForm):
-    class Meta: model=Expedition; fields=['name','region','latitude','longitude','start_date','end_date','objectives','status','team']
+    class Meta: model=Expedition; fields=['name','region','latitude','longitude','start_date','end_date','objectives','status','leader','team']
+    def clean_leader(self):
+        leader=self.cleaned_data.get('leader')
+        if leader and user_role(leader)!=EXPEDITION_LEADER:
+            raise ValidationError('Assign an account with the Expedition Leader role.')
+        return leader
     def clean_team(self):
         team=self.cleaned_data['team']
-        from django.utils import timezone
-        expired=[str(person) for person in team if not person.assignment_eligible()]
+        expired=[]
+        for person in team:
+            if not person.assignment_eligible():
+                expired.append(str(person))
+                continue
+            other_missions=person.expeditions.exclude(pk=getattr(self.instance,'pk',None))
+            if other_missions.exists():
+                expired.append(f'{person} (already assigned to another expedition)')
         if expired: raise ValidationError('Medical clearance expired or missing for: '+', '.join(expired))
         return team
 class DepotForm(PolarForm):
@@ -46,6 +57,8 @@ class CertificationForm(PolarForm):
     class Meta: model=Certification; fields=['profile','kind','issued_on','expires_on','credential_id']
 class AssetForm(PolarForm):
     class Meta: model=Asset; fields=['code','name','category','condition','location','expedition','purchase_date','usage_hours','cold_exposure_hours','last_service']
+class MaintenanceForm(PolarForm):
+    class Meta: model=MaintenanceRecord; fields=['asset','service_date','summary','next_due']
 class StockItemForm(PolarForm):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
@@ -102,11 +115,21 @@ class TransportForm(PolarForm):
 class ContingencyPlanForm(PolarForm):
     class Meta: model=ContingencyPlan; fields=['expedition','evacuation_route','nearest_stations','checklist']
 class RiskAssessmentForm(PolarForm):
+    override_verdict=forms.ChoiceField(choices=[('', 'Use calculated verdict')]+[x for x in [('GO','GO'),('CAUTION','CAUTION'),('NO-GO','NO-GO')]],required=False,label='Decision override')
+    override_reason=forms.CharField(required=False,widget=forms.Textarea(attrs={'rows':2}),label='Override reason')
     class Meta: model=RiskAssessment; fields=['expedition','temperature','wind_kph','visibility_km','daylight_hours']
+    def clean(self):
+        cleaned=super().clean()
+        if cleaned.get('override_verdict') and not cleaned.get('override_reason','').strip():
+            self.add_error('override_reason','A written reason is required for a Go/No-Go override.')
+        if cleaned.get('override_reason','').strip() and not cleaned.get('override_verdict'):
+            self.add_error('override_verdict','Choose the verdict to apply with this reason.')
+        return cleaned
     def save(self,commit=True):
         from core.services import assess_risk
         assessment=super().save(commit=False); result=assess_risk(assessment.temperature,assessment.wind_kph,assessment.visibility_km,assessment.daylight_hours)
         assessment.score=result['score']; assessment.verdict=result['verdict']; assessment.factors=result['factors']
+        assessment.override_reason=self.cleaned_data.get('override_reason','')
         if commit: assessment.save()
         return assessment
 class SOSForm(PolarForm):
@@ -118,6 +141,7 @@ RESOURCES={
  'personnel':(PersonnelProfile,PersonnelForm,['user','role','nationality','medical_cleared','medical_expiry']),
  'certifications':(Certification,CertificationForm,['profile','kind','expires_on','credential_id']),
  'assets':(Asset,AssetForm,['code','name','category','condition','location']),
+ 'maintenance':(MaintenanceRecord,MaintenanceForm,['asset','service_date','summary','next_due']),
  'inventory':(StockItem,StockItemForm,['code','name','category','quantity','unit','minimum','location']),
  'movements':(StockMovement,StockMovementForm,['item','delta','reason','at']),
  'transport':(TransportPlan,TransportForm,['expedition','kind','vehicle','starts_at','ends_at','status']),
@@ -131,20 +155,16 @@ def resource_config(view):
     return resource,RESOURCES[resource]
 class ManagerView(RoleRequiredMixin,ExpeditionScopedMixin):
     """Map resource/method pairs to the centralized permission declaration."""
-    permission_action='resource.view'
-    VIEW_ACTIONS={'expeditions':'expedition.view','depots':'depot.view','personnel':'personnel.view','certifications':'certification.view','assets':'asset.view','inventory':'inventory.view','movements':'inventory.view','transport':'transport.view','emergency-plans':'emergency.view','risk-assessments':'risk.view'}
-    CREATE_ACTIONS={'expeditions':'expedition.create','depots':'depot.manage','personnel':'personnel.manage','certifications':'certification.manage','assets':'asset.manage','inventory':'inventory.manage','movements':'inventory.manage','transport':'transport.create','emergency-plans':'emergency.edit','risk-assessments':'risk.assess'}
-    EDIT_ACTIONS={'expeditions':'expedition.edit','depots':'depot.manage','personnel':'personnel.manage','certifications':'certification.manage','assets':'asset.manage','inventory':'inventory.manage','movements':'inventory.manage','transport':'transport.edit','emergency-plans':'emergency.edit','risk-assessments':'risk.edit'}
+    permission_action='record.delete'
+    VIEW_ACTIONS={'expeditions':'expedition.view','depots':'depot.view','personnel':'personnel.view','certifications':'certification.view','assets':'asset.view','maintenance':'maintenance.view','inventory':'inventory.view','movements':'inventory.view','transport':'transport.view','emergency-plans':'emergency.view','risk-assessments':'risk.view'}
+    CREATE_ACTIONS={'expeditions':'expedition.create','depots':'depot.manage','personnel':'personnel.manage','certifications':'certification.manage','assets':'asset.manage','maintenance':'maintenance.manage','inventory':'inventory.manage','movements':'inventory.manage','transport':'transport.create','emergency-plans':'emergency.edit','risk-assessments':'risk.assess'}
+    EDIT_ACTIONS={'expeditions':'expedition.edit','depots':'depot.manage','personnel':'personnel.manage','certifications':'certification.manage','assets':'asset.manage','maintenance':'maintenance.manage','inventory':'inventory.manage','movements':'inventory.manage','transport':'transport.edit','emergency-plans':'emergency.edit','risk-assessments':'risk.edit'}
     def get_permission_action(self):
         resource=getattr(self,'resource','')
-        if self.request.method=='POST' and isinstance(self,ResourceDeleteView): return 'record.delete'
-        if self.request.method in ('POST','PUT','PATCH') and isinstance(self,ResourceUpdateView): return self.EDIT_ACTIONS.get(resource,'record.delete')
-        if self.request.method in ('POST','PUT','PATCH') and isinstance(self,ResourceCreateView): return self.CREATE_ACTIONS.get(resource,'record.delete')
-        action=self.VIEW_ACTIONS.get(resource,'resource.view')
-        if user_role(self.request.user)=='Field Member':
-            if resource=='personnel': return 'personnel.self'
-            if resource=='certifications': return 'certification.view.self'
-        return action
+        if isinstance(self,ResourceDeleteView): return 'record.delete'
+        if isinstance(self,ResourceUpdateView): return self.EDIT_ACTIONS.get(resource,'record.delete')
+        if isinstance(self,ResourceCreateView): return self.CREATE_ACTIONS.get(resource,'record.delete')
+        return self.VIEW_ACTIONS.get(resource,'record.delete')
     def get_queryset(self):
         qs=super().get_queryset()
         model=getattr(self,'model',None) or getattr(self,'config',(None,))[0]
@@ -190,13 +210,17 @@ class ResourceListView(ManagerView,ListView):
                 if hasattr(value,'all'): value=', '.join(str(x) for x in value.all())
                 cells.append(value if value is not None else '—')
             rows.append({'object':obj,'cells':cells})
-        c.update({'resource':self.resource,'columns':columns,'filters':filters,'rows':rows})
+        c.update({'resource':self.resource,'columns':columns,'filters':filters,'rows':rows,'can_create_record':can(self.request.user,self.CREATE_ACTIONS.get(self.resource,'record.delete'))})
         return c
 class ResourceDetailView(ManagerView,DetailView):
     template_name='core/resource_detail.html'; context_object_name='object'
     def dispatch(self,request,*args,**kwargs): self.resource,self.config=resource_config(self); self.model=self.config[0]; return super().dispatch(request,*args,**kwargs)
     def get_context_data(self,**kwargs):
-        c=super().get_context_data(**kwargs); c['resource']=self.resource; c['fields']=[(f.verbose_name.title(),getattr(self.object,f.name)) for f in self.object._meta.fields if f.name not in ('id',)]; return c
+        c=super().get_context_data(**kwargs); c['resource']=self.resource; c['fields']=[(f.verbose_name.title(),getattr(self.object,f.name)) for f in self.object._meta.fields if f.name not in ('id',)]
+        c['can_edit_record']=can(self.request.user,self.EDIT_ACTIONS.get(self.resource,'record.delete'),self.object)
+        c['can_delete_record']=can(self.request.user,'record.delete',self.object)
+        c['can_approve_transport']=self.resource=='transport' and can(self.request.user,'transport.approve',self.object)
+        return c
 class ResourceCreateView(ManagerView,CreateView):
     template_name='core/resource_form.html'
     def dispatch(self,request,*args,**kwargs): self.resource,self.config=resource_config(self); self.model,self.form_class,_=self.config; return super().dispatch(request,*args,**kwargs)
@@ -206,9 +230,16 @@ class ResourceCreateView(ManagerView,CreateView):
         for field in form.fields.values():
             qs=getattr(field,'queryset',None)
             if qs is not None and hasattr(qs,'model'):
-                field.queryset=scope_model_queryset(self.request,qs.model,qs)
+                if qs.model is PersonnelProfile and role == EXPEDITION_LEADER:
+                    from django.utils import timezone
+                    from django.db.models import Q
+                    field.queryset=qs.filter(medical_cleared=True,medical_expiry__gte=timezone.localdate()).filter(Q(expeditions__isnull=True)|Q(expeditions__leader=self.request.user)).distinct()
+                else:
+                    field.queryset=scope_model_queryset(self.request,qs.model,qs)
         if isinstance(form,ExpeditionForm) and role==EXPEDITION_LEADER:
             form.fields.pop('leader',None)
+        if isinstance(form,TransportForm) and role==LOGISTICS_OFFICER:
+            form.fields.pop('status',None)
         if self.model is Expedition and role==EXPEDITION_LEADER:
             form.fields.pop('leader',None)
         return form
@@ -217,10 +248,21 @@ class ResourceCreateView(ManagerView,CreateView):
         if isinstance(form,ExpeditionForm) and user_role(self.request.user)==EXPEDITION_LEADER:
             form.instance.leader=self.request.user
         if isinstance(form,TransportForm):
-            form.instance.created_by=self.request.user
+            if self.object is None:
+                form.instance.created_by=self.request.user
             if user_role(self.request.user)==LOGISTICS_OFFICER:
                 form.instance.approval_status='pending'
                 form.instance.status='scheduled'
+                form.instance.approved_by=None
+                form.instance.approved_at=None
+                form.instance.approval_note=''
+        if isinstance(form,RiskAssessmentForm) and form.cleaned_data.get('override_verdict'):
+            from django.utils import timezone
+            form.instance.override_verdict=form.cleaned_data['override_verdict']
+            form.instance.override_reason=form.cleaned_data['override_reason']
+            form.instance.override_by=self.request.user
+            form.instance.override_at=timezone.now()
+        form.instance._history_user=self.request.user
         if isinstance(form,StockMovementForm): form.current_user=self.request.user
         try: response=super().form_valid(form)
         except ValidationError as error:

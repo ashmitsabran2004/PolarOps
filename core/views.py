@@ -1,7 +1,5 @@
 from django.core.exceptions import PermissionDenied
 from django.views.generic import TemplateView, ListView, FormView, DetailView
-from django.contrib.auth.models import Group
-from django.db.models import Count
 from django.urls import reverse_lazy
 from django import forms
 from expeditions.models import Expedition,Depot
@@ -14,6 +12,10 @@ from accounts.permissions import (
     ADMINISTRATOR, EXPEDITION_LEADER, FIELD_MEMBER, LOGISTICS_OFFICER,
     ExpeditionScopedMixin, RoleRequiredMixin, can, scoped_queryset, user_role,
 )
+from django.shortcuts import render
+
+def permission_denied(request, exception=None):
+    return render(request, 'core/403.html', status=403)
 
 class RoleMixin(RoleRequiredMixin):
     permission_action = 'dashboard.view'
@@ -21,6 +23,7 @@ class RoleMixin(RoleRequiredMixin):
 class ExpeditionSelectionView(RoleMixin,TemplateView):
     """Store a validated expedition scope, or clear it for the global dashboard."""
     http_method_names=['post']
+    permission_action='expedition.select'
     def post(self,request,*args,**kwargs):
         from django.shortcuts import redirect
         from django.core.exceptions import PermissionDenied
@@ -102,10 +105,11 @@ class DashboardView(RoleMixin,TemplateView):
             from assets.models import AssetCheckout
             profile=getattr(user,'field_profile',None)
             c['checked_out_assets']=AssetCheckout.objects.filter(taken_by=profile,checkin_date__isnull=True).select_related('asset','expedition') if profile else []
+            c['my_trips']=TransportPlan.objects.filter(expedition_id__in=exp_ids,people=profile).select_related('expedition').order_by('starts_at') if profile else []
             self.template_name='core/dashboard_field.html'
         elif role == EXPEDITION_LEADER:
             from inventory.models import Requisition
-            c['pending_approvals']=Requisition.objects.filter(expedition__in=expeditions,status='submitted').select_related('requester')
+            c['pending_approvals']=Requisition.objects.filter(expedition__in=expeditions,status='submitted').exclude(requester=user).select_related('requester')
             self.template_name='core/dashboard_leader.html'
         elif role == LOGISTICS_OFFICER:
             from inventory.models import Requisition
@@ -113,6 +117,7 @@ class DashboardView(RoleMixin,TemplateView):
             self.template_name='core/dashboard_logistics.html'
         return c
 class ExpeditionListView(RoleMixin,ListView):
+    permission_action='expedition.view'
     model=Expedition; template_name='expeditions/list.html'; context_object_name='expeditions'; paginate_by=12
     def get_queryset(self):
         qs=Expedition.objects.prefetch_related('team','assets').all(); user=self.request.user
@@ -132,8 +137,9 @@ class AlertsView(RoleMixin,ListView):
     permission_action='alerts.view'
     model=Alert; template_name='core/alerts.html'; context_object_name='alerts'; paginate_by=25
     def get_queryset(self):
+        from accounts.permissions import scoped_queryset
         from core.scope import selected_expedition
-        qs=Alert.objects.filter(acknowledged=False).select_related('expedition')
+        qs=scoped_queryset(self.request.user,Alert.objects.filter(acknowledged=False).select_related('expedition'))
         expedition=selected_expedition(self.request)
         return qs.filter(expedition=expedition) if expedition else qs
 

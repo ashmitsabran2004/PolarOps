@@ -32,8 +32,10 @@ class Requisition(models.Model):
     safety_buffer=models.DecimalField(max_digits=5,decimal_places=3,default='.200')
     created_at=models.DateTimeField(auto_now_add=True)
     submitted_at=models.DateTimeField(null=True,blank=True)
+    submitted_by=models.ForeignKey('auth.User',null=True,blank=True,on_delete=models.SET_NULL,related_name='requisitions_submitted')
     approved_at=models.DateTimeField(null=True,blank=True)
     fulfilled_at=models.DateTimeField(null=True,blank=True)
+    fulfilled_by=models.ForeignKey('auth.User',null=True,blank=True,on_delete=models.SET_NULL,related_name='requisitions_fulfilled')
     rejection_reason=models.TextField(blank=True)
     history=HistoricalRecords()
     class Meta: ordering=['-created_at']

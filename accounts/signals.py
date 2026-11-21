@@ -2,6 +2,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.db.models.signals import m2m_changed, pre_save
 from django.dispatch import receiver
 
@@ -14,13 +15,8 @@ ROLE_GROUP_IDS = lambda: set(Group.objects.filter(name__in=ROLE_GROUPS).values_l
 def active_admin_count(exclude_pk=None):
     qs = User.objects.filter(is_active=True)
     if exclude_pk:
-        # A superuser cannot be demoted by a role group change, so count it as admin separately.
-        role_admins = qs.filter(groups__name=ADMINISTRATOR).exclude(pk=exclude_pk).distinct().count()
-        superusers = qs.filter(is_superuser=True).exclude(pk=exclude_pk).count()
-        return role_admins + superusers
-    role_admins = qs.filter(groups__name=ADMINISTRATOR).distinct().count()
-    superusers = qs.filter(is_superuser=True).count()
-    return role_admins + superusers
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.filter(Q(is_superuser=True) | Q(groups__name=ADMINISTRATOR)).distinct().count()
 
 
 @receiver(pre_save, sender=User)

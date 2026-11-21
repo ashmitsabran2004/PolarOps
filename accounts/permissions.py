@@ -87,6 +87,11 @@ PERMISSION_MAP = {
     "api.alert.write": (ADMINISTRATOR,),
     "api.token.issue": ROLE_CHOICES,
     "api.index.view": ROLE_CHOICES,
+    "maintenance.view": ROLE_CHOICES,
+    "maintenance.manage": (ADMINISTRATOR, LOGISTICS_OFFICER),
+    "risk.weather": (ADMINISTRATOR, EXPEDITION_LEADER),
+    "requisition.pdf": (ADMINISTRATOR, EXPEDITION_LEADER, LOGISTICS_OFFICER),
+    "expedition.select": ROLE_CHOICES,
 }
 
 
@@ -112,6 +117,12 @@ def _expedition_for(obj):
         return obj
     if hasattr(obj, "expedition"):
         return obj.expedition
+    if hasattr(obj, "asset"):
+        return getattr(obj.asset, "expedition", None)
+    if hasattr(obj, "asset"):
+        return getattr(obj.asset, "expedition", None)
+    if hasattr(obj, "asset"):
+        return getattr(obj.asset, "expedition", None)
     if hasattr(obj, "item"):
         return getattr(obj.item, "expedition", None)
     return None
@@ -152,14 +163,14 @@ def can(user, action, obj=None):
     if allowed is None or not has_role(user, *allowed):
         return False
     role = user_role(user)
-    if action.startswith("profile.edit") and obj is not None and getattr(obj, "pk", None) == user.pk:
-        return action == "profile.edit.self" and role == FIELD_MEMBER
+    if action.startswith("profile.edit") and obj is not None:
+        owner_id = obj.pk if obj.__class__.__name__ == "User" else getattr(obj, 'user_id', None)
+        if action == 'profile.edit.self':
+            return role == FIELD_MEMBER and owner_id == user.pk
+        if owner_id == user.pk:
+            return False
     if action in ("requisition.approve", "requisition.reject", "transport.approve") and obj is not None:
         creator = getattr(obj, "requester_id", None) or getattr(obj, "created_by_id", None)
-        if creator == user.pk and role != ADMINISTRATOR:
-            return False
-    if action in ("requisition.approve", "requisition.reject") and role == ADMINISTRATOR and obj is not None:
-        creator = getattr(obj, "requester_id", None)
         if creator == user.pk:
             return False
     if obj is not None and role in (EXPEDITION_LEADER, FIELD_MEMBER):
@@ -175,8 +186,16 @@ def scoped_queryset(user, queryset, expedition_lookup="expedition"):
     if role == EXPEDITION_LEADER:
         if queryset.model.__name__ == "Expedition":
             return queryset.filter(leader=user)
+        if queryset.model.__name__ == "User":
+            return queryset.filter(field_profile__expeditions__leader=user).distinct()
         if queryset.model.__name__ == "StockMovement":
             return queryset.filter(item__expedition__leader=user)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__leader=user)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__leader=user)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__leader=user)
         if queryset.model.__name__ == "Certification":
             return queryset.filter(profile__expeditions__leader=user).distinct()
         if queryset.model.__name__ == "PersonnelProfile":
@@ -192,6 +211,8 @@ def scoped_queryset(user, queryset, expedition_lookup="expedition"):
         # queryset that Django correctly rejects for expedition__in lookups.
         from expeditions.models import Expedition
         missions = profile.expeditions.all() if profile else Expedition.objects.none()
+        if profile and profile.expeditions.count() != 1:
+            missions = Expedition.objects.none()
         if queryset.model.__name__ == "Expedition":
             return queryset.filter(pk__in=missions.values("pk"))
         if queryset.model.__name__ == "PersonnelProfile":
@@ -203,6 +224,12 @@ def scoped_queryset(user, queryset, expedition_lookup="expedition"):
             return queryset.filter(Q(expedition__in=missions) | Q(recipient=user))
         if queryset.model.__name__ == "StockMovement":
             return queryset.filter(item__expedition__in=missions)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__in=missions)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__in=missions)
+        if queryset.model.__name__ == "MaintenanceRecord":
+            return queryset.filter(asset__expedition__in=missions)
         if queryset.model.__name__ == "Certification":
             return queryset.filter(profile__user=user)
         return queryset.filter(**{f"{expedition_lookup}__in": missions})
@@ -239,7 +266,11 @@ class ExpeditionScopedMixin:
     def get_object(self, queryset=None):
         from django.core.exceptions import PermissionDenied
         action = self.get_permission_action() if hasattr(self, 'get_permission_action') else (self.permission_action or "")
-        write = any(token in action for token in ("create", "edit", "delete", "manage", "approve", "reject", "fulfill", "submit", "update"))
+        write = any(token in action for token in (
+            '.create', '.edit', '.delete', '.manage', '.approve', '.reject',
+            '.fulfill', '.submit', '.update', '.assess', '.override',
+            '.checkout', '.checkin', '.usage', '.write',
+        ))
         if write:
             base = queryset if queryset is not None else self.model._default_manager.all()
             lookup = self.get_queryset_kwargs()

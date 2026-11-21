@@ -16,6 +16,8 @@ def set_user_role(*, actor, user, role, reason=''):
     if role not in ROLE_CHOICES:
         raise ValidationError('Choose one of the four PolarOps roles.')
     previous = user_role(user) or ''
+    if user.is_superuser and role != ADMINISTRATOR:
+        raise ValidationError('Superusers always have the Administrator role.')
     if user.pk == actor.pk and previous != role:
         raise PermissionDenied('Administrators cannot change their own role.')
     if previous == ADMINISTRATOR and role != ADMINISTRATOR and user.is_active and active_admin_count(exclude_pk=user.pk) == 0:

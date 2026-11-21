@@ -41,6 +41,8 @@ def scope_model_queryset(request, model, queryset):
         return base.filter(profile__expeditions=selected).distinct()
     if name == 'StockMovement':
         return base.filter(item__expedition=selected)
+    if name == 'MaintenanceRecord':
+        return base.filter(asset__expedition=selected)
     try:
         model._meta.get_field('expedition')
     except Exception:

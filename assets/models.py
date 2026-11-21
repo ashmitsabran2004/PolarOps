@@ -31,6 +31,7 @@ class AssetCheckout(models.Model):
     usage_hours_added=models.PositiveIntegerField(default=0)
     cold_exposure_hours_added=models.PositiveIntegerField(default=0)
     damage_notes=models.TextField(blank=True)
+    force_checkin_reason=models.TextField(blank=True)
     history=HistoricalRecords()
     class Meta: ordering=['-checkout_date']; indexes=[models.Index(fields=['asset','checkin_date'])]; constraints=[models.UniqueConstraint(fields=['asset'],condition=Q(checkin_date__isnull=True),name='unique_active_asset_checkout')]
     @property
