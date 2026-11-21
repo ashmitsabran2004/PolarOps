@@ -2,5 +2,5 @@
 {% block title %}Access denied · PolarOps{% endblock %}
 {% block content %}
 <div class="page-heading"><div><div class="eyebrow">ACCESS CONTROL</div><h1>Access denied</h1><p>Your PolarOps role does not allow this action, or this record is outside your expedition scope.</p></div></div>
-<section class="panel"><p>Return to your role dashboard to continue with the records available to you.</p><a class="button" href="{% url 'dashboard' %}">BACK TO MISSION DASHBOARD</a></section>
+<section class="panel access-denied-illustration"><div class="access-mark" aria-hidden="true"><span>403</span><i></i><i></i><i></i></div><p>Return to your role dashboard to continue with the records available to you.</p><a class="button" href="{% url 'dashboard' %}">BACK TO MISSION DASHBOARD</a></section>
 {% endblock %}
