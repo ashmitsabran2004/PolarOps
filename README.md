@@ -62,10 +62,24 @@ The compose defaults are for local evaluation only. Set a real secret, password,
 
 ## Roles and access
 
-- **Administrator:** all operational screens, alert actions and audit log.
-- **Expedition Leader:** manage expedition and readiness records, approve/reject requisitions, acknowledge/resolve SOS events.
-- **Logistics Officer:** manage personnel, certification, assets, inventory and transport; check assets in/out; submit and fulfill approved requisitions.
-- **Field Member:** view assigned expeditions/assets, submit SOS events, and check custody records for the assigned mission. Field Members receive 403 responses on management CRUD pages.
+Roles are Django groups: Administrator, Expedition Leader, Logistics Officer and Field Member. Accounts have exactly one role; superusers are Administrators. The server authorization map is `accounts/permissions.py`; the Administrator permission matrix page renders that same map.
+
+| Capability | Administrator | Expedition Leader | Logistics Officer | Field Member |
+|---|:---:|:---:|:---:|:---:|
+| Global user and role administration, audit log, Django admin | Full | — | — | — |
+| View expeditions | All | Led expeditions | All | Assigned expedition |
+| Create and edit expeditions | Full | Create; edit led expeditions | — | — |
+| Personnel and clearance | Full | Assign eligible people; view | View | Own profile and certifications |
+| Assets | Full | View led expeditions | Create, edit, retire, maintain | View assigned expedition; custody and usage for held assets |
+| Inventory | Full | View led expeditions | Full stock, threshold and movement management | View assigned expedition; usage consumption only |
+| Transport | Full | Approve plans for led expeditions | Create and schedule; approval required | View assigned expedition |
+| Supply calculator and requisitions | Full | Calculator; approve/reject | Calculator; create, submit and fulfill | — |
+| Risk assessments and Go/No-Go | Full, including configuration | Assess and decide for led expeditions | View | Current verdict only |
+| Emergency plans and checklists | Full | Create and edit for led expeditions | View | View assigned expedition |
+| SOS events | Full response | Acknowledge, update and resolve | View | Submit; view relevant events |
+| Reports and exports | All | Led expeditions | Asset, inventory, transport and requisition | — |
+
+The action by action matrix is generated from `PERMISSION_MAP` on the Administrator-only `/permission-matrix/` page. Expedition Leaders and Field Members are scoped to assigned expeditions; Logistics Officers and Administrators can see all.
 
 Pages and API routes require an authenticated PolarOps role. The API is under /api/; obtain a token from /api/token/ and send it as Authorization: Token <key>. Field API querysets are scoped to assigned expeditions.
 
@@ -88,7 +102,7 @@ Pages and API routes require an authenticated PolarOps role. The API is under /a
 2. Sign in as logistics_officer, open **Supply calculator**, calculate for a region/team/duration, then create a Draft requisition from the result.
 3. As Logistics, submit the requisition. Sign in as expedition_leader, approve it. Return as Logistics and fulfill it to see the generated inventory movements.
 4. As Logistics, open an assigned asset such as ANT-TRK-002, check it out to an eligible member of its expedition, and print the tag. Scan its QR with a phone on the same reachable PolarOps URL to open the asset record.
-5. Sign in as field_member, open **Send SOS**, confirm the prefilled camp coordinates and submit. As an Expedition Leader, acknowledge and resolve the new dashboard banner.
+5. Sign in as field_member, use field mode to review the assigned expedition and held assets, record supply consumption and submit SOS. Sign in as the assigned Expedition Leader to review pending approvals and acknowledge/resolve the event with a note.
 6. Sign in as administrator and open **Audit log** to review the actor, model, object, action and time for records changed during the walkthrough.
 
 For a deployed demo, set POLAROPS_PUBLIC_URL to the reachable HTTPS app URL before generating QR tags. Localhost QR URLs are only scannable on a device that can reach that local server.

@@ -113,7 +113,10 @@ class DashboardView(RoleMixin,TemplateView):
             self.template_name='core/dashboard_leader.html'
         elif role == LOGISTICS_OFFICER:
             from inventory.models import Requisition
-            c['pending_fulfillment']=Requisition.objects.filter(status='approved').select_related('expedition')
+            from core.scope import selected_expedition
+            selected=selected_expedition(self.request)
+            qs=Requisition.objects.filter(status='approved').select_related('expedition')
+            c['pending_fulfillment']=qs.filter(expedition=selected) if selected else qs
             self.template_name='core/dashboard_logistics.html'
         return c
 class ExpeditionListView(RoleMixin,ListView):

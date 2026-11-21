@@ -219,4 +219,8 @@ class PermissionMatrixView(RoleRequiredMixin, TemplateView):
             {'action': action, 'allowed': allowed, 'values': [role in allowed for role in ROLE_CHOICES]}
             for action, allowed in PERMISSION_MAP.items()
         ]
+        c['permission_markdown'] = [
+            '| ' + ' | '.join([action] + [('✓' if role in allowed else '—') for role in ROLE_CHOICES]) + ' |'
+            for action, allowed in PERMISSION_MAP.items()
+        ]
         return c

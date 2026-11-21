@@ -24,9 +24,16 @@ class RequisitionCreateView(RoleRequiredMixin, FormView):
     template_name = 'core/calculator.html'
     form_class = SupplyForm
 
+    def dispatch(self, request, *args, **kwargs):
+        # Use the shared role resolver instead of relying on group membership for policy.
+        from accounts.permissions import EXPEDITION_LEADER, user_role
+        self.permission_action = 'requisition.create.leader' if user_role(request.user) == EXPEDITION_LEADER else 'requisition.create'
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
         data = form.cleaned_data
-        expedition = Expedition.objects.filter(region=data['region'], status='active').first() or Expedition.objects.filter(region=data['region']).first()
+        from core.scope import scope_model_queryset
+        expedition = scope_model_queryset(self.request, Expedition, Expedition.objects.filter(region=data['region'], status='active')).first() or scope_model_queryset(self.request, Expedition, Expedition.objects.filter(region=data['region'])).first()
         if not expedition:
             form.add_error('region', 'No expedition is configured for this region yet.')
             return self.form_invalid(form)

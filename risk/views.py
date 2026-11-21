@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.http import Http404
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -21,7 +22,10 @@ class RiskEntryView(RoleRequiredMixin, FormView):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
-        expedition = get_object_or_404(Expedition, pk=kwargs['expedition_id'])
+        expedition = get_object_or_404(Expedition.objects.all(), pk=kwargs['expedition_id'])
+        from core.scope import available_expeditions
+        if not available_expeditions(request.user).filter(pk=expedition.pk).exists():
+            raise Http404
         if not can(request.user, self.permission_action, expedition):
             raise PermissionDenied
         self.expedition = expedition

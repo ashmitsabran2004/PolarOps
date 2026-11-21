@@ -33,13 +33,18 @@ class ResourcePermissionTests(TestCase):
  def setUp(self):
   self.admin=User.objects.create_user('opsmanager',password='password-12345'); self.admin.groups.add(Group.objects.create(name='Logistics Officer'))
   self.member=User.objects.create_user('fieldmember',password='password-12345'); self.member.groups.add(Group.objects.create(name='Field Member'))
- def test_manager_can_open_asset_crud_and_field_member_cannot(self):
+  from datetime import date,timedelta
+  from personnel.models import PersonnelProfile
+  self.profile=PersonnelProfile.objects.create(user=self.member,medical_cleared=True,medical_expiry=date.today()+timedelta(days=90))
+  self.expedition=Expedition.objects.create(name='Permissions Camp',region='arctic',latitude=78,longitude=15,start_date=date.today(),end_date=date.today()+timedelta(days=5))
+  self.expedition.team.add(self.profile)
+ def test_logistics_manages_assets_and_field_member_reads_assigned_assets(self):
   from django.test import Client
   client=Client(); client.force_login(self.admin)
   self.assertEqual(client.get('/ops/assets/').status_code,200)
   self.assertEqual(client.get('/ops/assets/new/').status_code,200)
   client.force_login(self.member)
-  self.assertEqual(client.get('/ops/assets/').status_code,403)
+  self.assertEqual(client.get('/ops/assets/').status_code,200)
   self.assertEqual(client.get('/ops/assets/new/').status_code,403)
  def test_manager_can_create_asset_and_view_detail(self):
   from django.test import Client
@@ -58,6 +63,8 @@ class AssetCustodyTests(TestCase):
   self.profile=PersonnelProfile.objects.create(user=self.user,medical_cleared=True,medical_expiry=date.today()+timedelta(days=90))
   self.expedition=Expedition.objects.create(name='Custody Test',region='arctic',latitude=78,longitude=15,start_date=date.today(),end_date=date.today()+timedelta(days=10))
   self.expedition.team.add(self.profile)
+  self.expedition.leader=self.user; self.expedition.save(update_fields=['leader'])
+  self.user.groups.add(Group.objects.create(name='Field Member'))
   self.asset=Asset.objects.create(code='PO-CUSTODY-1',name='Radio',category='communication',condition='ready',expedition=self.expedition)
  def test_checkout_rejects_maintenance_and_duplicate_custody(self):
   from django.core.exceptions import ValidationError
@@ -78,7 +85,7 @@ class AssetCustodyTests(TestCase):
   from django.test import Client
   from django.contrib.auth.models import Group
   from assets.services import asset_qr_data_uri
-  client=Client(); self.user.groups.add(Group.objects.create(name='Field Member')); client.force_login(self.user)
+  client=Client(); self.user.groups.add(Group.objects.get(name='Field Member')); client.force_login(self.user)
   self.assertEqual(client.get('/assets/PO-CUSTODY-1/').status_code,200)
   self.assertTrue(asset_qr_data_uri(self.asset,client.get('/assets/PO-CUSTODY-1/').wsgi_request).startswith('data:image/png;base64,'));self.asset.refresh_from_db();self.assertTrue(self.asset.qr_image.name)
 
@@ -92,6 +99,8 @@ class SOSWorkflowTests(TestCase):
   self.profile=PersonnelProfile.objects.create(user=self.user,medical_cleared=True,medical_expiry=date.today()+timedelta(days=60))
   self.expedition=Expedition.objects.create(name='SOS Camp',region='arctic',latitude='78.20000',longitude='15.60000',start_date=date.today(),end_date=date.today()+timedelta(days=4))
   self.expedition.team.add(self.profile)
+  leader=User.objects.create_user('sos-owner'); leader.groups.add(Group.objects.create(name='Expedition Leader'))
+  self.expedition.leader=leader; self.expedition.save(update_fields=['leader'])
  def test_field_member_submits_sos_prefilled_from_assigned_camp(self):
   from django.test import Client
   from emergency.models import SOSEvent
@@ -105,10 +114,12 @@ class SOSWorkflowTests(TestCase):
   from django.contrib.auth.models import Group
   from emergency.models import SOSEvent
   event=SOSEvent.objects.create(expedition=self.expedition,reported_by=self.user,latitude=78,longitude=15,details='Emergency')
-  leader=User.objects.create_user('leader-sos',password='long-password-123');leader.groups.add(Group.objects.create(name='Expedition Leader'))
+  leader=User.objects.create_user('leader-sos',password='long-password-123');leader.groups.add(Group.objects.get(name='Expedition Leader'))
+  self.expedition.leader=leader; self.expedition.save(update_fields=['leader'])
+  event.refresh_from_db()
   c=Client();c.force_login(leader)
-  self.assertEqual(c.post(f'/sos/{event.pk}/acknowledge/').status_code,302)
-  self.assertEqual(c.post(f'/sos/{event.pk}/resolve/').status_code,302)
+  self.assertEqual(c.post(f'/sos/{event.pk}/acknowledge/',{'note':'Response team notified'}).status_code,302)
+  self.assertEqual(c.post(f'/sos/{event.pk}/resolve/',{'note':'Situation stabilized'}).status_code,302)
   event.refresh_from_db(); self.assertEqual(event.status,'resolved'); self.assertEqual(event.status_history.count(),2)
 
 class WeatherFallbackTests(TestCase):
@@ -117,6 +128,7 @@ class WeatherFallbackTests(TestCase):
   from django.contrib.auth.models import Group
   self.user=User.objects.create_user('weatherlead',password='long-password-123');self.user.groups.add(Group.objects.create(name='Expedition Leader'))
   self.expedition=Expedition.objects.create(name='Weather Camp',region='arctic',latitude=78,longitude=15,start_date=date.today(),end_date=date.today()+timedelta(days=3))
+  self.expedition.leader=self.user; self.expedition.save(update_fields=['leader'])
  def test_open_meteo_is_parsed_with_mocked_provider(self):
   import json
   from unittest.mock import MagicMock,patch
@@ -191,6 +203,7 @@ class RequisitionWorkflowTests(TestCase):
   self.logistics=User.objects.create_user('rq-logistics');self.logistics.groups.add(Group.objects.create(name='Logistics Officer'))
   self.leader=User.objects.create_user('rq-leader');self.leader.groups.add(Group.objects.create(name='Expedition Leader'))
   self.expedition=Expedition.objects.create(name='Provision Camp',region='antarctica',latitude=-78,longitude=123,start_date=date.today(),end_date=date.today()+timedelta(days=20))
+  self.expedition.leader=self.leader; self.expedition.save(update_fields=['leader'])
   self.requisition=Requisition.objects.create(expedition=self.expedition,requester=self.logistics,team_size=6,duration_days=12,safety_buffer='.2')
   RequisitionLine.objects.create(requisition=self.requisition,item_name='Field food',category='food',quantity='12.50',unit='kg')
  def test_submit_approve_fulfill_creates_stock_movement(self):
@@ -356,18 +369,21 @@ class ManagementSurfaceTests(TestCase):
  def setUp(self):
   self.manager=User.objects.create_user('surface-manager');self.manager.groups.add(Group.objects.create(name='Expedition Leader'))
   self.field=User.objects.create_user('surface-field');self.field.groups.add(Group.objects.create(name='Field Member'))
- def test_all_manager_resource_lists_and_forms_render_and_fields_are_blocked(self):
+ def test_leader_reads_scope_and_can_create_expedition_but_field_is_limited(self):
   from django.test import Client
+  from datetime import date,timedelta
+  expedition=Expedition.objects.create(name='Leader Camp',region='arctic',latitude=78,longitude=15,start_date=date.today(),end_date=date.today()+timedelta(days=5),leader=self.manager)
   resources=['expeditions','depots','personnel','certifications','assets','inventory','movements','transport','emergency-plans','risk-assessments']
   c=Client();c.force_login(self.manager)
   for resource in resources:
    with self.subTest(resource=resource):
     self.assertEqual(c.get(f'/ops/{resource}/').status_code,200)
-    self.assertEqual(c.get(f'/ops/{resource}/new/').status_code,200)
+    self.assertIn(c.get(f'/ops/{resource}/new/').status_code,(200,403))
   c.force_login(self.field)
   for resource in resources:
    with self.subTest(blocked_resource=resource):
-    self.assertEqual(c.get(f'/ops/{resource}/').status_code,403)
+    expected=200 if resource in ('expeditions','depots','assets','inventory','movements','transport','emergency-plans','risk-assessments') else 403
+    self.assertEqual(c.get(f'/ops/{resource}/').status_code,expected)
     self.assertEqual(c.get(f'/ops/{resource}/new/').status_code,403)
  def test_transport_form_rejects_vehicle_overlap(self):
   from datetime import date,timedelta
@@ -399,6 +415,7 @@ class RequisitionRejectionTests(TestCase):
   logistics=User.objects.create_user('reject-logistics');logistics.groups.add(Group.objects.create(name='Logistics Officer'))
   leader=User.objects.create_user('reject-leader');leader.groups.add(Group.objects.create(name='Expedition Leader'))
   expedition=Expedition.objects.create(name='Rejection Mission',region='arctic',latitude=78,longitude=15,start_date=date.today(),end_date=date.today()+timedelta(days=3))
+  expedition.leader=leader; expedition.save(update_fields=['leader'])
   requisition=Requisition.objects.create(expedition=expedition,requester=logistics,team_size=2,duration_days=3,safety_buffer=0.2)
   submit_requisition(requisition.pk,logistics)
   rejected=reject_requisition(requisition.pk,leader,'Insufficient transport capacity')

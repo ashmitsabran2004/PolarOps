@@ -46,6 +46,7 @@ PERMISSION_MAP = {
     "calculator.run": (ADMINISTRATOR, EXPEDITION_LEADER, LOGISTICS_OFFICER),
     "requisition.view": (ADMINISTRATOR, EXPEDITION_LEADER, LOGISTICS_OFFICER),
     "requisition.create": (ADMINISTRATOR, LOGISTICS_OFFICER),
+    "requisition.create.leader": (EXPEDITION_LEADER,),
     "requisition.submit": (ADMINISTRATOR, LOGISTICS_OFFICER),
     "requisition.approve": (ADMINISTRATOR, EXPEDITION_LEADER),
     "requisition.reject": (ADMINISTRATOR, EXPEDITION_LEADER),
