@@ -122,6 +122,21 @@ Pages and API routes require an authenticated PolarOps role. The API is under /a
 
 For a deployed demo, set POLAROPS_PUBLIC_URL to the reachable HTTPS app URL before generating QR tags. Localhost QR URLs are only scannable on a device that can reach that local server.
 
+## Interface design and motion
+
+PolarOps uses a shared mission-control visual system across all five regional palettes. The page shell, forms, tables, dashboards, alerts and empty states use the existing theme variables, with self-hosted Barlow Condensed, Inter and JetBrains Mono font files. The login screen cycles Antarctica, Arctic, Himalaya, Subantarctic and Greenland treatments; the main dashboard uses a compact low-poly hero globe and preserves the offline field map.
+
+Local browser libraries are pinned in `static/vendor/`:
+
+| Library | Version | Use |
+|---|---:|---|
+| Motion | 12.23.24 | Page reveals, staggered entries, in-view and scroll motion |
+| Three.js | 0.180.0 | Small login globe and dashboard hero |
+| Leaflet | 1.9.4 | Dashboard field map |
+| Chart.js | 4.4.8 | Dashboard stock chart |
+
+The user menu offers **Effects: Full, Reduced or Off**; the selection is stored in local storage. Reduced-motion preferences, small screens, low hardware concurrency or memory, missing WebGL, and a one-second frame-rate probe reduce or disable scene motion. 3D uses procedural geometry, no shadows or post-processing, a renderer pixel ratio capped at 1.5, and pauses when hidden, out of view or during fast scrolling. Missing or unavailable WebGL falls back to the themed CSS gradient and topographic pattern. The interactive map’s basemap tiles and live weather still use their configured data services; the map retains its offline SVG fallback.
+
 ## Architecture and checks
 
 - polarops/: environment-based settings, root routing, ASGI and WSGI.
