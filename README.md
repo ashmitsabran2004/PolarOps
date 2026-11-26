@@ -60,6 +60,23 @@ docker compose up --build
 
 The compose defaults are for local evaluation only. Set a real secret, password, public URL, allowed hosts and DJANGO_DEBUG=0 before deployment. Put the app behind HTTPS, back up PostgreSQL and the media directory, and use a production WSGI server. Schedule python manage.py generate_alerts regularly (for example, daily) to scan stock, cold-chain, maintenance, medical-clearance and certification conditions.
 
+## Deploy to Vercel
+
+Vercel detects this Django project from `manage.py`, discovers the WSGI application and serves collected static files through its CDN. No `vercel.json` or custom adapter is required. Connect this repository in Vercel or run `vercel deploy` from the project root.
+
+Before deploying, add a managed PostgreSQL database and configure these Vercel environment variables for Preview and Production:
+
+| Variable | Value |
+|---|---|
+| `DJANGO_SECRET_KEY` | A newly generated, private Django secret key |
+| `DJANGO_DEBUG` | `0` |
+| `DATABASE_URL` | PostgreSQL connection URL from the database provider |
+| `POLAROPS_PUBLIC_URL` | The public `https://...vercel.app` URL (or custom domain) |
+
+Vercel automatically allows its `*.vercel.app` hostnames. Add any custom hostname to `DJANGO_ALLOWED_HOSTS` as a comma-separated list. Apply migrations once the production database is configured with `python manage.py migrate` using that database URL, then create the first administrator securely; do not run the demo seed command in a production deployment. QR image uploads are written to `media/`, which is ephemeral on Vercel Functions. Use external object storage before relying on QR image uploads in production; generated QR tags can otherwise be regenerated.
+
+Vercel will run `collectstatic` during the build because `STATIC_ROOT` is configured. The local SQLite database is only for development and must not be used for production data.
+
 ## Roles and access
 
 Roles are Django groups: Administrator, Expedition Leader, Logistics Officer and Field Member. Accounts have exactly one role; superusers are Administrators. The server authorization map is `accounts/permissions.py`; the Administrator permission matrix page renders that same map.
